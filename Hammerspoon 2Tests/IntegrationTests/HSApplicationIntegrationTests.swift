@@ -10,10 +10,6 @@ import JavaScriptCore
 @testable import Hammerspoon_2
 import AppKit
 
-private nonisolated func chessIsAvailable() -> Bool {
-    NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Chess") != nil
-}
-
 /// Integration tests for hs.application module
 ///
 /// These tests verify that application objects are correctly bridged to JavaScript
@@ -382,29 +378,32 @@ struct HSApplicationTests {
 
     // MARK: - Menu Traversal Tests
 
-    /// Tests menu bar traversal via the accessibility APIs. Uses Finder as the target
-    /// application because it is always running on macOS, including GitHub macOS runners.
+    /// Tests menu bar traversal via the accessibility APIs. Uses the Hammerspoon 2 Test App
+    /// (``TestAppControl``) as the target: its menu titles are English whatever the system language.
     @Suite(
         "hs.application menu traversal tests", .serialized,
-        .disabled(if: !AXIsProcessTrusted(), "Accessibility permission not granted")
+        .disabled(if: !AXIsProcessTrusted(), "Accessibility permission not granted"),
+        .enabled(if: TestAppControl.isAvailable, "The test app could not be built"), .testApp
     )
     struct HSApplicationMenuTraversalTests {
 
         private func makeHarness() -> JSTestHarness {
             let harness = JSTestHarness()
             harness.loadModule(HSApplicationModule.self, as: "application")
+            harness.eval("var testAppPID = \(TestAppControl.pid ?? -1);")
+            TestAppControl.showCurrentTest()
             return harness
         }
 
-        @Test("getMenuItems returns a non-empty menu tree for Finder")
+        @Test("getMenuItems returns a non-empty menu tree")
         func testGetMenuItemsReturnsNonEmptyTree() {
             // Regression test: getMenuItems previously used a whole-array `as?` cast
             // (`menuBar.attribute(.children)`) which always fails for AX array
             // attributes and silently returns [].
             let harness = makeHarness()
             harness.eval("""
-            var finder = hs.application.matchingBundleID('com.apple.finder');
-            var items = finder.getMenuItems();
+            var app = hs.application.fromPID(testAppPID);
+            var items = app.getMenuItems();
             var titles = items ? items.map(function(i) { return i.title; }) : [];
             """)
 
@@ -416,12 +415,12 @@ struct HSApplicationTests {
         func testFindMenuItemByName() {
             let harness = makeHarness()
             harness.eval("""
-            var finder = hs.application.matchingBundleID('com.apple.finder');
-            var item = finder.findMenuItemByName('New Tab');
+            var app = hs.application.fromPID(testAppPID);
+            var item = app.findMenuItemByName('New Window');
             """)
 
             harness.expectTrue("item !== null && item !== undefined")
-            harness.expectEqual("item.title", "New Tab")
+            harness.expectEqual("item.title", "New Window")
         }
 
         @Test("findMenuItemByPath finds a nested menu item via its path")
@@ -432,12 +431,12 @@ struct HSApplicationTests {
             // the top level always failed to resolve.
             let harness = makeHarness()
             harness.eval("""
-            var finder = hs.application.matchingBundleID('com.apple.finder');
-            var item = finder.findMenuItemByPath(['File', 'New Tab']);
+            var app = hs.application.fromPID(testAppPID);
+            var item = app.findMenuItemByPath(['File', 'New Window']);
             """)
 
             harness.expectTrue("item !== null && item !== undefined")
-            harness.expectEqual("item.title", "New Tab")
+            harness.expectEqual("item.title", "New Window")
         }
     }
 
@@ -623,8 +622,8 @@ struct HSApplicationTests {
     // MARK: - Watcher Event Delivery Tests
 
     /// Tests that NSWorkspace application events are correctly delivered to JavaScript watcher callbacks.
-    /// Uses Chess.app as the target because it is a bundled macOS app with no side effects.
-    @Suite("hs.application watcher event delivery tests", .serialized, .disabled(if: !chessIsAvailable(), "Chess.app not found on this system"))
+    /// Uses the Hammerspoon 2 Test App (``TestAppControl``) as the target.
+    @Suite("hs.application watcher event delivery tests", .serialized, .enabled(if: TestAppControl.isAvailable, "The test app could not be built"))
     struct HSApplicationWatcherEventTests {
 
         private func makeHarness() -> JSTestHarness {
@@ -633,37 +632,11 @@ struct HSApplicationTests {
             return harness
         }
 
-        private func launchChess() async -> NSRunningApplication? {
-            guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Chess") else { return nil }
-            // Launch in the background: none of these tests need Chess active, and activating it
-            // would steal focus from tests in other suites that check which app is frontmost.
-            let configuration = NSWorkspace.OpenConfiguration()
-            configuration.activates = false
-            return try? await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
-        }
-
-        private func terminateAllChess() {
-            NSWorkspace.shared.runningApplications
-                .filter { $0.bundleIdentifier == "com.apple.Chess" }
-                .forEach { $0.terminate() }
-        }
-
-        private func waitForChessToTerminate() async {
-            let deadline = Date().addingTimeInterval(5.0)
-            while Date() < deadline {
-                let stillRunning = NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == "com.apple.Chess" }
-                if !stillRunning { return }
-                try? await Task.sleep(for: .milliseconds(100))
-            }
-        }
-
         // MARK: - Event delivery
 
-        @Test("watcher receives didLaunch when Chess is launched")
+        @Test("watcher receives didLaunch when the test app is launched")
         func testDidLaunch() async {
-            terminateAllChess()
-            await waitForChessToTerminate()
-
+            var launched: NSRunningApplication?
             let harness = makeHarness()
             harness.eval("""
             var _dlReceived = false;
@@ -672,27 +645,26 @@ struct HSApplicationTests {
         """)
             defer {
                 harness.eval("hs.application.off('didLaunch', _dlFn)")
-                terminateAllChess()
+                launched?.terminate()
             }
 
-            guard await launchChess() != nil else { return }
+            launched = await TestAppControl.launch(detail: "Launches this app and waits for the didLaunch event")
+            guard launched != nil else { return }
 
             let received = await harness.waitForAsync(timeout: 5.0) {
                 harness.eval("_dlReceived") as? Bool == true
             }
+            #expect(received, "the event did not arrive")
             if received {
                 harness.expectTrue("_dlReceived")
             }
         }
 
-        @Test("watcher receives didHide when Chess is hidden")
+        @Test("watcher receives didHide when the test app is hidden")
         func testDidHide() async {
-            terminateAllChess()
-            await waitForChessToTerminate()
-
-            guard let chess = await launchChess() else { return }
-            // Wait for Chess to finish launching before hiding it
-            try? await Task.sleep(for: .milliseconds(1500))
+            var launched: NSRunningApplication?
+            launched = await TestAppControl.launch(detail: "Hides this app and waits for the didHide event")
+            guard let app = launched else { return }
 
             let harness = makeHarness()
             harness.eval("""
@@ -702,27 +674,26 @@ struct HSApplicationTests {
         """)
             defer {
                 harness.eval("hs.application.off('didHide', _dhFn)")
-                terminateAllChess()
+                launched?.terminate()
             }
 
-            chess.hide()
+            app.hide()
 
             let received = await harness.waitForAsync(timeout: 3.0) {
                 harness.eval("_dhReceived") as? Bool == true
             }
+            #expect(received, "the event did not arrive")
             if received {
                 harness.expectTrue("_dhReceived")
             }
         }
 
-        @Test("watcher receives didUnhide when Chess is unhidden")
+        @Test("watcher receives didUnhide when the test app is unhidden")
         func testDidUnhide() async {
-            terminateAllChess()
-            await waitForChessToTerminate()
-
-            guard let chess = await launchChess() else { return }
-            try? await Task.sleep(for: .milliseconds(1500))
-            chess.hide()
+            var launched: NSRunningApplication?
+            launched = await TestAppControl.launch(detail: "Hides and unhides this app and waits for the didUnhide event")
+            guard let app = launched else { return }
+            app.hide()
             try? await Task.sleep(for: .milliseconds(500))
 
             let harness = makeHarness()
@@ -733,26 +704,25 @@ struct HSApplicationTests {
         """)
             defer {
                 harness.eval("hs.application.off('didUnhide', _duFn)")
-                terminateAllChess()
+                launched?.terminate()
             }
 
-            chess.unhide()
+            app.unhide()
 
             let received = await harness.waitForAsync(timeout: 3.0) {
                 harness.eval("_duReceived") as? Bool == true
             }
+            #expect(received, "the event did not arrive")
             if received {
                 harness.expectTrue("_duReceived")
             }
         }
 
-        @Test("watcher receives didTerminate when Chess is terminated")
+        @Test("watcher receives didTerminate when the test app is terminated")
         func testDidTerminate() async {
-            terminateAllChess()
-            await waitForChessToTerminate()
-
-            guard let chess = await launchChess() else { return }
-            try? await Task.sleep(for: .milliseconds(1500))
+            var launched: NSRunningApplication?
+            launched = await TestAppControl.launch(detail: "Quits this app and waits for the didTerminate event")
+            guard let app = launched else { return }
 
             let harness = makeHarness()
             harness.eval("""
@@ -762,11 +732,12 @@ struct HSApplicationTests {
         """)
             defer { harness.eval("hs.application.off('didTerminate', _dtFn)") }
 
-            chess.terminate()
+            app.terminate()
 
             let received = await harness.waitForAsync(timeout: 5.0) {
                 harness.eval("_dtReceived") as? Bool == true
             }
+            #expect(received, "the event did not arrive")
             if received {
                 harness.expectTrue("_dtReceived")
             }
@@ -776,9 +747,7 @@ struct HSApplicationTests {
 
         @Test("listener receives a single application object argument")
         func testCallbackArguments() async {
-            terminateAllChess()
-            await waitForChessToTerminate()
-
+            var launched: NSRunningApplication?
             let harness = makeHarness()
             harness.eval("""
             var _caApp = undefined;
@@ -789,14 +758,16 @@ struct HSApplicationTests {
         """)
             defer {
                 harness.eval("hs.application.off('didLaunch', _caFn)")
-                terminateAllChess()
+                launched?.terminate()
             }
 
-            guard await launchChess() != nil else { return }
+            launched = await TestAppControl.launch(detail: "Launches this app; the didLaunch listener must get one application object")
+            guard launched != nil else { return }
 
             let received = await harness.waitForAsync(timeout: 5.0) {
                 harness.eval("_caApp !== undefined") as? Bool == true
             }
+            #expect(received, "the event did not arrive")
             if received {
                 harness.expectTrue("_caApp !== null && typeof _caApp === 'object'")
             }
@@ -806,9 +777,7 @@ struct HSApplicationTests {
 
         @Test("multiple listeners all receive the didLaunch event")
         func testMultipleListenersAllReceiveEvent() async {
-            terminateAllChess()
-            await waitForChessToTerminate()
-
+            var launched: NSRunningApplication?
             let harness = makeHarness()
             harness.eval("""
             var _ml1Count = 0, _ml2Count = 0;
@@ -822,14 +791,16 @@ struct HSApplicationTests {
                 hs.application.off('didLaunch', _ml1Fn);
                 hs.application.off('didLaunch', _ml2Fn);
             """)
-                terminateAllChess()
+                launched?.terminate()
             }
 
-            guard await launchChess() != nil else { return }
+            launched = await TestAppControl.launch(detail: "Launches this app; both didLaunch listeners must fire")
+            guard launched != nil else { return }
 
             let received = await harness.waitForAsync(timeout: 5.0) {
                 harness.eval("_ml1Count > 0 && _ml2Count > 0") as? Bool == true
             }
+            #expect(received, "the event did not arrive")
             if received {
                 harness.expectTrue("_ml1Count > 0")
                 harness.expectTrue("_ml2Count > 0")
@@ -838,9 +809,7 @@ struct HSApplicationTests {
 
         @Test("a removed listener does not receive subsequent events")
         func testRemovedListenerDoesNotReceiveEvents() async {
-            terminateAllChess()
-            await waitForChessToTerminate()
-
+            var launched: NSRunningApplication?
             let harness = makeHarness()
             harness.eval("""
             var _rlRemovedCount = 0, _rlKeptCount = 0;
@@ -852,14 +821,16 @@ struct HSApplicationTests {
         """)
             defer {
                 harness.eval("hs.application.off('didLaunch', _rlKeptFn)")
-                terminateAllChess()
+                launched?.terminate()
             }
 
-            guard await launchChess() != nil else { return }
+            launched = await TestAppControl.launch(detail: "Launches this app; the removed didLaunch listener must stay silent")
+            guard launched != nil else { return }
 
             let received = await harness.waitForAsync(timeout: 5.0) {
                 harness.eval("_rlKeptCount > 0") as? Bool == true
             }
+            #expect(received, "the event did not arrive")
             if received {
                 harness.expectTrue("_rlKeptCount > 0")
                 harness.expectEqual("_rlRemovedCount", 0)
@@ -870,16 +841,16 @@ struct HSApplicationTests {
 
         @Test("a listener registered for one event does not receive a different real event")
         func testListenerDoesNotReceiveOtherRealEvents() async {
-            terminateAllChess()
-            await waitForChessToTerminate()
-
+            var launched: NSRunningApplication?
             let harness = makeHarness()
             harness.eval("""
-            // Only count Chess: other apps launch and quit system-wide while this runs,
-            // including from tests in other suites.
+            // Only count the test app: other apps launch and quit system-wide while this runs,
+            // including copies of the test app from tests in other suites.
             var _cfLaunchCount = 0, _cfTerminateCount = 0;
-            var _cfLaunchFn = function(app) { if (app.bundleID === 'com.apple.Chess') _cfLaunchCount++; };
-            var _cfTerminateFn = function(app) { if (app.bundleID === 'com.apple.Chess') _cfTerminateCount++; };
+            var _cfLaunchFn = function(app) { if (app && app.bundleID === 'net.tenshu.Hammerspoon-2.TestApp') _cfLaunchCount++; };
+            // Counts only this test's copy: other suites quit their own copies meanwhile
+            var _cfPID = -1;
+            var _cfTerminateFn = function(app) { if (app && app.pid === _cfPID) _cfTerminateCount++; };
             hs.application.on('didLaunch', _cfLaunchFn);
             hs.application.on('didTerminate', _cfTerminateFn);
         """)
@@ -888,14 +859,17 @@ struct HSApplicationTests {
                 hs.application.off('didLaunch', _cfLaunchFn);
                 hs.application.off('didTerminate', _cfTerminateFn);
             """)
-                terminateAllChess()
+                launched?.terminate()
             }
 
-            guard await launchChess() != nil else { return }
+            launched = await TestAppControl.launch(detail: "Launches this app; the didTerminate listener must stay silent")
+            guard let pid = launched?.processIdentifier else { return }
+            harness.eval("_cfPID = \(pid);")
 
             let received = await harness.waitForAsync(timeout: 5.0) {
                 harness.eval("_cfLaunchCount > 0") as? Bool == true
             }
+            #expect(received, "the event did not arrive")
             if received {
                 harness.expectTrue("_cfLaunchCount > 0")
                 harness.expectEqual("_cfTerminateCount", 0)

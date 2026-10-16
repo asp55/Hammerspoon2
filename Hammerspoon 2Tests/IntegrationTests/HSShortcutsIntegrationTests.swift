@@ -128,11 +128,19 @@ struct HSShortcutsIntegrationTests {
             #expect(rejected)
         }
 
-        @Test("open() does not throw for any name")
-        func testOpenDoesNotThrow() {
+        @Test("open() asks the Shortcuts app for the shortcut by name, escaped in the URL")
+        func testOpenBuildsShortcutURL() throws {
             let harness = makeHarness()
-            harness.eval("hs.shortcuts.open('__test_shortcut__')")
+            let module = try #require(harness.evalValue("hs.shortcuts")?.toObjectOf(HSShortcutsModule.self) as? HSShortcutsModule)
+            // Catches the URL instead of opening it: the Shortcuts app would come up, show an error
+            // dialog for a name it doesn't know, and stay open after the test run.
+            var opened: [String] = []
+            module.urlOpener = { opened.append($0.absoluteString) }
+
+            harness.eval("hs.shortcuts.open('Tom & Jerry ü')")
+
             #expect(!harness.hasException)
+            #expect(opened == ["shortcuts://open-shortcut?name=Tom%20%26%20Jerry%20%C3%BC"])
         }
     }
 }
