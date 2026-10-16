@@ -120,10 +120,9 @@ struct Hammerspoon_2App: App {
 
     @State private var settingsManager = SettingsManager.shared
 
-    private let updaterController: SPUStandardUpdaterController
-
     init() {
-        updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+        // Start the updater at launch, not on first use of the menu
+        _ = AppUpdater.controller
     }
 
     var body: some Scene {
@@ -148,7 +147,7 @@ struct Hammerspoon_2App: App {
 
             Divider()
 
-            CheckForUpdatesView(updater: updaterController.updater)
+            CheckForUpdatesView(updater: AppUpdater.updater)
 
             Divider()
 
@@ -173,7 +172,7 @@ struct Hammerspoon_2App: App {
                     openWindow(id: "about")
                 }
 
-                CheckForUpdatesView(updater: updaterController.updater)
+                CheckForUpdatesView(updater: AppUpdater.updater)
             }
 
             CommandMenu("Debug") {
