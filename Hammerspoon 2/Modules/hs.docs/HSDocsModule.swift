@@ -17,7 +17,13 @@ import JavaScriptCore
 /// `hs.docs.show()` opens an `hs.ui.webview` window with the JS or TypeScript docs.
 /// `hs.docs.get()` returns formatted plain-text documentation from the bundled `api.json`.
 @objc protocol HSDocsModuleAPI: JSExport {
-    /// Open the Hammerspoon 2 API documentation in a new window
+    /// Open the Hammerspoon 2 API documentation in a window
+    ///
+    /// If the documentation window is already open, it is brought to the front (and restored if
+    /// minimized) instead of opening another one. It navigates to the requested page if
+    /// `moduleName` is given, or if it isn't currently showing the requested docs (JS or TS);
+    /// otherwise it stays on whatever page it is showing.
+    ///
     /// - Parameter moduleName?: Optional module to navigate to directly (e.g. `"hs.application"`). Omit to open the index page.
     /// - Parameter showTS?: Pass `true` to show TypeScript docs instead of JS docs
     /// - Example:
@@ -74,6 +80,12 @@ import JavaScriptCore
 
     private var cachedModules: [[String: Any]]? = nil
 
+    // The window opened by show(), so another show() while it's open raises it instead of
+    // opening a second one. Weak: a shown window is kept alive by hs.ui, and a closed one is
+    // garbage.
+    private(set) weak var docsWindow: HSUIWindow?
+    private(set) weak var docsWebView: UIWebView?
+
     required init(engineID: UUID) {
         self.engineID = engineID
         super.init()
@@ -94,6 +106,8 @@ import JavaScriptCore
 
     func shutdown() {
         cachedModules = nil
+        docsWindow = nil
+        docsWebView = nil
     }
 
     // MARK: - Public API
@@ -105,26 +119,44 @@ import JavaScriptCore
             AKWarning("hs.docs.show: documentation not bundled")
             return
         }
-        let htmlFile = moduleName.flatMap { ["undefined", "null", ""].contains($0) ? nil : "\($0).html" } ?? "index.html"
+        let requestedModule = moduleName.flatMap { ["undefined", "null", ""].contains($0) ? nil : $0 }
+        let htmlFile = requestedModule.map { "\($0).html" } ?? "index.html"
         // Percent-encode the filename to handle any special characters in moduleName,
         // then pass via a JS variable to avoid string-literal injection entirely.
         let encodedFile = htmlFile.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? "index.html"
         let fileURL = "file://\(basePath)/\(encodedFile)"
+
+        if let window = docsWindow, window.isShown, let webView = docsWebView {
+            // Ask the web view what it's showing rather than remembering what we loaded: the
+            // user may have navigated since, with its toolbar or links.
+            let currentPath = webView.url.flatMap { URL(string: $0) }?.path
+            let showingRequestedDocs = currentPath?.hasPrefix(basePath + "/") ?? false
+            if requestedModule != nil || !showingRequestedDocs {
+                _ = webView.loadURL(fileURL)
+            }
+            _ = window.show()
+            return
+        }
+
         context.setObject(fileURL, forKeyedSubscript: "__hsDsUrl" as NSString)
-        context.evaluateScript("""
+        let created = context.evaluateScript("""
             (function(url) {
                 const wv = hs.ui.webview()
                     .toolbar(["back", "forward", "reload", "url"])
                     .loadURL(url);
-                hs.ui.window({x: 100, y: 100, w: 1200, h: 800})
+                const win = hs.ui.window({x: 100, y: 100, w: 1200, h: 800})
                     .titled(true).closable(true).allowResize(true)
                     .level("normal").webview(wv).show();
+                return [win, wv];
             })(__hsDsUrl);
         """)
         context.setObject(NSNull(), forKeyedSubscript: "__hsDsUrl" as NSString)
         if let exception = context.exception {
             AKError("hs.docs.show: JS exception: \(exception)")
+            return
         }
+        docsWindow = created?.atIndex(0).toObject() as? HSUIWindow
+        docsWebView = created?.atIndex(1).toObject() as? UIWebView
     }
 
     @objc func get(_ identifier: String) -> String? {

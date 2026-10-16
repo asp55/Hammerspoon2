@@ -77,7 +77,7 @@ import SwiftUI
 @objc protocol HSUIWindowAPI: HSTypeAPI, JSExport {
     // MARK: Window Management
 
-    /// Show the window
+    /// Show the window, bringing it to the front and restoring it if it's minimized
     /// - Note: A shown window, and its callbacks, stay alive until it's hidden, closed or destroyed, even if you don't keep a reference to it
     /// - Returns: Self for chaining
     @objc func show() -> HSUIWindow
@@ -430,7 +430,7 @@ import SwiftUI
     // views in it), until it's hidden, closed or destroyed, even if the user dropped their
     // reference to it. A hidden window nobody references can never be shown again, so it's
     // ordinary garbage.
-    private var isShown = false {
+    private(set) var isShown = false {
         didSet {
             module?.windows.setActive(self, isShown)
         }
@@ -516,6 +516,9 @@ import SwiftUI
         // which a web view's WebPage can't survive (#286).
         let window = nsWindow ?? makeWindow(root: root)
 
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
 
