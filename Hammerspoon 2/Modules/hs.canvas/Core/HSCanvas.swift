@@ -830,12 +830,14 @@ import SwiftUI
 
     @objc func appendElements(_ elements: [[String: Any]]) -> HSCanvas {
         if rejectIfDestroyed("appendElements") { return self }
+        elements.forEach { CanvasElementDrawing.warnAboutInvalidAttributes($0, caller: "appendElements") }
         elementStore.elements.append(contentsOf: elements)
         return self
     }
 
     @objc func insertElement(_ element: [String: Any], _ index: Int) -> HSCanvas {
         if rejectIfDestroyed("insertElement") { return self }
+        CanvasElementDrawing.warnAboutInvalidAttributes(element, caller: "insertElement")
         let clamped = max(0, min(index, elementStore.elements.count))
         elementStore.elements.insert(element, at: clamped)
         return self
@@ -843,6 +845,7 @@ import SwiftUI
 
     @objc func assignElement(_ element: [String: Any], _ index: Int) -> HSCanvas {
         if rejectIfDestroyed("assignElement") { return self }
+        CanvasElementDrawing.warnAboutInvalidAttributes(element, caller: "assignElement")
         if index >= 0 && index < elementStore.elements.count {
             elementStore.elements[index] = element
         } else if index == elementStore.elements.count {
@@ -870,6 +873,7 @@ import SwiftUI
 
     @objc func replaceElements(_ elements: [[String: Any]]) -> HSCanvas {
         if rejectIfDestroyed("replaceElements") { return self }
+        elements.forEach { CanvasElementDrawing.warnAboutInvalidAttributes($0, caller: "replaceElements") }
         elementStore.elements = elements
         return self
     }
@@ -897,6 +901,7 @@ import SwiftUI
             AKWarning("hs.canvas: setElementAttribute() index \(index) out of bounds")
             return self
         }
+        CanvasElementDrawing.warnAboutInvalidAttribute(key, value, caller: "setElementAttribute")
         elementStore.elements[index][key] = value
         return self
     }
