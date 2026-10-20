@@ -161,6 +161,9 @@ struct Hammerspoon_2App: App {
             }
         }
         .onChange(of: settingsManager.dockMenuBehaviour, initial: true) {
+            // Info.plist declares LSUIElement, so we start as .accessory and promote ourselves here.
+            // Without it, LaunchServices resets an .accessory app to .regular (showing a Dock icon)
+            // whenever it opens the app, e.g. for a hammerspoon2:// URL or `open -a` (#316)
             NSApplication.shared.setActivationPolicy(settingsManager.dockMenuBehaviour.activationPolicy)
         }
 
