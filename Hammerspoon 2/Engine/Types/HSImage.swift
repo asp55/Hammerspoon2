@@ -209,6 +209,26 @@ import Observation
     init(image: NSImage) {
         self.image = image
         super.init()
+        JSExtraMemory.report(Self.estimatedByteCount(of: image))
+    }
+
+    /// Roughly how much memory the image's pixels take, at 4 bytes per pixel.
+    ///
+    /// A bitmap holds all its pixels, so the largest bitmap representation is counted in full.
+    /// Other representations (app icons, symbols, PDFs) render on demand at the size the image is
+    /// drawn, however large they say they can go: an app icon offers 2048x2048 but draws at
+    /// 32x32 points. Those are counted at the image's size on a 2x display.
+    static func estimatedByteCount(of image: NSImage) -> Int {
+        let drawnWidth = image.size.width * 2
+        let drawnHeight = image.size.height * 2
+        let drawnBytes = JSExtraMemory.byteCount(pixelsWide: drawnWidth, pixelsHigh: drawnHeight)
+
+        let representationBytes = image.representations.map { rep in
+            let bytes = JSExtraMemory.byteCount(pixelsWide: Double(rep.pixelsWide), pixelsHigh: Double(rep.pixelsHigh))
+            return rep is NSBitmapImageRep ? bytes : min(bytes, drawnBytes)
+        }
+        let largest = representationBytes.max() ?? 0
+        return largest > 0 ? largest : drawnBytes
     }
 
     // MARK: - Factory Methods
@@ -293,7 +313,10 @@ import Observation
 
     @objc var size: HSSize {
         get { image.size.toBridge() }
-        set { image = resizeImage(image, to: newValue.size) }
+        set {
+            image = resizeImage(image, to: newValue.size)
+            JSExtraMemory.report(Self.estimatedByteCount(of: image))
+        }
     }
 
     @objc var name: String? {
