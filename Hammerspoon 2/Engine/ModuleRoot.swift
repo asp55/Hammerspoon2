@@ -60,6 +60,21 @@ import JavaScriptCoreExtras
     /// ```
     @objc func clearConsole()
 
+    /// {(() => void) | null} Called when Hammerspoon 2 is launched again while it's already
+    /// running (e.g. from Finder, Spotlight or `open -a`), or when its Dock icon is clicked, or null
+    /// to remove it. It's only called when Settings → Advanced → "When launched while running" is
+    /// set to "Call hs.onRelaunch". If it's set to that and no callback is set (for example because
+    /// your config failed to load), the Console is shown instead, so you can always get back to it.
+    /// - Example:
+    /// ```js
+    /// // Reload the config when the Dock icon is clicked
+    /// hs.onRelaunch = () => hs.reload()
+    ///
+    /// // Remove it again
+    /// hs.onRelaunch = null
+    /// ```
+    @objc var onRelaunch: JSFunction? { get set }
+
     /// Load a Spoon - a packaged, reusable piece of configuration - by name, from the
     /// `Spoons` directory inside your config directory. A Spoon must contain a well-formed
     /// `spoon.json` (with non-empty `name`, `author`, `version`, and `description` fields)
@@ -164,6 +179,8 @@ import JavaScriptCoreExtras
     // Retains the JSContext, so shutdown() must release it.
     private var moduleWrappers: [String: JSValue] = [:]
 
+    private var _onRelaunch: JSCallback?
+
     // The context the modules were first used from, recorded with their wrappers, so shutdown()
     // can drop any pins its modules left behind.
     private var context: JSContext?
@@ -221,6 +238,9 @@ import JavaScriptCoreExtras
             }
         }
 
+        _onRelaunch?.detach(from: self)
+        _onRelaunch = nil
+
         modules.removeAll()
         moduleWrappers.removeAll()
         context = nil
@@ -265,6 +285,26 @@ import JavaScriptCoreExtras
         if let url = URL(string:"hammerspoon2://closeConsole") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    // MARK: - Relaunch
+    @objc var onRelaunch: JSValue? {
+        get { _onRelaunch?.value }
+        set {
+            _onRelaunch?.detach(from: self)
+            _onRelaunch = nil
+            guard let newValue, !newValue.isNull, !newValue.isUndefined else { return }
+            _onRelaunch = JSCallback(value: newValue, owner: self)
+        }
+    }
+
+    /// Calls `hs.onRelaunch`, if it's set
+    /// - Returns: `true` if there was a callback to call, whether or not it threw
+    @discardableResult
+    func callOnRelaunch() -> Bool {
+        guard let callback = _onRelaunch?.value else { return false }
+        callback.call(withArguments: [])
+        return true
     }
 
     @objc func clearConsole() {

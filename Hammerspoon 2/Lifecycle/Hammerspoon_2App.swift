@@ -36,15 +36,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         switch SettingsManager.shared.reopenAction {
         case .showConsole:
-            NSApplication.shared.activate(ignoringOtherApps: true)
-            if let url = URL(string: "hammerspoon2://openConsole") {
-                NSWorkspace.shared.open(url)
+            showConsole()
+        case .callback:
+            // With no callback to call (e.g. the config failed to load), fall back to the
+            // Console, so there's always a way back in when we're in neither Dock nor menu bar
+            if JSEngine.shared.moduleRoot?.callOnRelaunch() != true {
+                AKWarning("Relaunched, but hs.onRelaunch isn't set, so showing the Console instead")
+                showConsole()
             }
         case .doNothing:
             break
         }
         // We've handled it ourselves, so SwiftUI shouldn't reopen a window of its choosing
         return false
+    }
+
+    private func showConsole() {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        if let url = URL(string: "hammerspoon2://openConsole") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

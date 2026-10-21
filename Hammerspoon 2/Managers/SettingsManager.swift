@@ -82,12 +82,15 @@ enum ReopenAction: String, CaseIterable, Identifiable {
     var id: Self { self }
 
     case showConsole
+    case callback
     case doNothing
 
     var displayName: String {
         switch self {
         case .showConsole:
             return "Show Console"
+        case .callback:
+            return "Call hs.onRelaunch"
         case .doNothing:
             return "Do Nothing"
         }
