@@ -573,6 +573,8 @@ import SwiftUI
             window.contentView = hostingView
 
             self.nsWindow = window
+            // Kept until the canvas is freed, including while hidden
+            JSExtraMemory.reportBackingStore(of: window)
         }
         guard let window = nsWindow else { return self }
 

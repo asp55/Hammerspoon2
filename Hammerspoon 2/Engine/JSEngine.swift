@@ -27,7 +27,8 @@ class JSEngine {
 
     private(set) var id = UUID()
     private var vm: JSVirtualMachine?
-    private var context: JSContext?
+    private(set) var context: JSContext?
+    private var memoryPressureCollector: MemoryPressureCollector?
 
     // MARK: - JSContext Managing
     private func createContext() throws(HammerspoonError) {
@@ -44,6 +45,7 @@ class JSEngine {
         }
 
         context.name = "Hammerspoon \(id)"
+        memoryPressureCollector = MemoryPressureCollector(context: context)
 
         // Attach a sentinel so we can observe exactly when this JSContext's ARC drops to 0.
         unsafe objc_setAssociatedObject(context, &contextTrackerKey, ContextLifetimeTracker(id: id), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
@@ -79,6 +81,7 @@ class JSEngine {
         AKDebug("Destroying JSContext: \(id)")
 
         SettingsManager.shared.removeAllDelegates()
+        memoryPressureCollector = nil
 
         if let hs = self["hs"] as? JSValue, let moduleRoot = hs.toObjectOf(ModuleRoot.self) as? ModuleRoot {
             moduleRoot.shutdown()

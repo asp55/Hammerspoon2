@@ -554,6 +554,8 @@ import SwiftUI
         }
 
         nsWindow = window
+        // Kept until destroy(), including while hidden
+        JSExtraMemory.reportBackingStore(of: window)
         return window
     }
 
