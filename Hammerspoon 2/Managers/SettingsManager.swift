@@ -14,6 +14,7 @@ enum DockMenubarType: String, CaseIterable, Identifiable {
     case dock
     case menuBar
     case both
+    case neither
 
     var displayName: String {
         switch self {
@@ -23,12 +24,14 @@ enum DockMenubarType: String, CaseIterable, Identifiable {
             return "Menu bar only"
         case .both:
             return "Dock and Menu bar"
+        case .neither:
+            return "Neither"
         }
     }
 
     var activationPolicy: NSApplication.ActivationPolicy {
         switch self {
-        case .menuBar:
+        case .menuBar, .neither:
             return .accessory
         default:
             return .regular
@@ -68,6 +71,28 @@ enum DockMenubarType: String, CaseIterable, Identifiable {
                     return
                 }
             }
+        }
+    }
+}
+
+/// What to do when the app is launched again while it's already running (e.g. from Finder,
+/// Spotlight or `open -a`), which macOS delivers as a reopen event rather than a second launch.
+/// Clicking the Dock icon is also a reopen event.
+enum ReopenAction: String, CaseIterable, Identifiable {
+    var id: Self { self }
+
+    case showConsole
+    case callback
+    case doNothing
+
+    var displayName: String {
+        switch self {
+        case .showConsole:
+            return "Show Console"
+        case .callback:
+            return "Call hs.onRelaunch"
+        case .doNothing:
+            return "Do Nothing"
         }
     }
 }
@@ -123,6 +148,7 @@ final class SettingsManager {
         case garbageLoggingEnabled
         case consoleAlwaysOnTop
         case consoleAlpha
+        case reopenAction
 
         var id: String { "\(self)" }
 
@@ -144,6 +170,8 @@ final class SettingsManager {
                 return false
             case .consoleAlpha:
                 return 1.0
+            case .reopenAction:
+                return ReopenAction.showConsole.rawValue
             }
         }
     }
@@ -198,6 +226,13 @@ final class SettingsManager {
         }
     }
 
+    var reopenAction: ReopenAction {
+        didSet {
+            UserDefaults.standard.set(reopenAction.rawValue, forKey: Keys.reopenAction.rawValue)
+            notifyDelegates()
+        }
+    }
+
     @ObservationIgnored
     private var defaultsObserver: (any NSObjectProtocol)?
 
@@ -210,7 +245,8 @@ final class SettingsManager {
             Keys.hasCompletedOnboarding.rawValue: Keys.hasCompletedOnboarding.defaultValue,
             Keys.garbageLoggingEnabled.rawValue: Keys.garbageLoggingEnabled.defaultValue,
             Keys.consoleAlwaysOnTop.rawValue: Keys.consoleAlwaysOnTop.defaultValue,
-            Keys.consoleAlpha.rawValue: Keys.consoleAlpha.defaultValue
+            Keys.consoleAlpha.rawValue: Keys.consoleAlpha.defaultValue,
+            Keys.reopenAction.rawValue: Keys.reopenAction.defaultValue
         ])
         configLocation = UserDefaults.standard.url(forKey: Keys.configLocation.rawValue)
             ?? (Keys.configLocation.defaultValue as! URL)
@@ -223,6 +259,9 @@ final class SettingsManager {
 
         let dockMenuBehaviourString = UserDefaults.standard.string(forKey: Keys.dockMenuBehaviour.rawValue) ?? Keys.dockMenuBehaviour.defaultValue as! String
         dockMenuBehaviour = DockMenubarType(rawValue: dockMenuBehaviourString) ?? .both
+
+        let reopenActionString = UserDefaults.standard.string(forKey: Keys.reopenAction.rawValue) ?? Keys.reopenAction.defaultValue as! String
+        reopenAction = ReopenAction(rawValue: reopenActionString) ?? .showConsole
 
         // didSet does not fire for assignments made inside this initializer, so the
         // AKGarbage gate needs to be seeded explicitly to match the persisted value.
@@ -262,6 +301,13 @@ final class SettingsManager {
             }
         }
 
+        let newReopenAction = UserDefaults.standard.string(forKey: Keys.reopenAction.rawValue)
+        if let newReopenAction, newReopenAction != reopenAction.rawValue {
+            if let action = ReopenAction(rawValue: newReopenAction) {
+                reopenAction = action
+            }
+        }
+
         let newHasCompletedOnboarding = UserDefaults.standard.bool(forKey: Keys.hasCompletedOnboarding.rawValue)
         if newHasCompletedOnboarding != hasCompletedOnboarding { hasCompletedOnboarding = newHasCompletedOnboarding }
 
@@ -290,5 +336,7 @@ extension SettingsManager: SettingsManagerProtocol {
 
         let dockMenuType = DockMenubarType(rawValue: Keys.dockMenuBehaviour.defaultValue as! String)!
         dockMenuBehaviour = dockMenuType
+
+        reopenAction = ReopenAction(rawValue: Keys.reopenAction.defaultValue as! String)!
     }
 }

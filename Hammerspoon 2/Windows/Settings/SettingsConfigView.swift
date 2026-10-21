@@ -42,6 +42,17 @@ struct SettingsConfigView: View {
         icon.size = .init(width: iconSize, height: iconSize)
     }
     
+    private var neitherHint: String {
+        switch settingsManager.reopenAction {
+        case .showConsole:
+            return "To open the Console, launch Hammerspoon 2 again (e.g. from Finder or Spotlight)."
+        case .callback:
+            return "Launching Hammerspoon 2 again (e.g. from Finder or Spotlight) calls hs.onRelaunch, or opens the Console if your config hasn't set it."
+        case .doNothing:
+            return "Launching Hammerspoon 2 again is set to do nothing (see Advanced), so you'll need hs.openConsole() or the hs2 command line tool to open the Console."
+        }
+    }
+
     var body: some View {
         HStack {
             Spacer()
@@ -78,6 +89,18 @@ struct SettingsConfigView: View {
                             }
                         }
                         .labelsHidden()
+                    }
+                    if settingsManager.dockMenuBehaviour == .neither {
+                        GridRow {
+                            Color.clear
+                                .gridCellUnsizedAxes([.horizontal, .vertical])
+                            Text(neitherHint)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .gridColumnAlignment(.leading)
+                                .frame(maxWidth: 400, alignment: .leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
                 Spacer()

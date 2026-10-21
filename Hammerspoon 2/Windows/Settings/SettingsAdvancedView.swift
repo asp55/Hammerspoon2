@@ -39,6 +39,17 @@ struct SettingsAdvancedView: View {
                         Toggle("Relaunch app on config reload", isOn: Bindable(settingsManager).relaunchOnReload)
                             .labelsHidden()
                     }
+                    GridRow {
+                        Text("When launched while running:")
+                            .gridColumnAlignment(.trailing)
+                        Picker("When launched while running", selection: Bindable(settingsManager).reopenAction) {
+                            ForEach(ReopenAction.allCases) { action in
+                                Text(action.displayName)
+                            }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                    }
 
                     GridRow {
                         Spacer()

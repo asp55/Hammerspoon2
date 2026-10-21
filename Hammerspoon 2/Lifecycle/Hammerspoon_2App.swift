@@ -30,6 +30,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ManagerManager.shared.prepareForTermination()
     }
 
+    /// Called when the app is launched again while already running (Finder, Spotlight, `open -a`)
+    /// or its Dock icon is clicked. This is how users get back to the console when we're hidden
+    /// from both the Dock and the menu bar.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        switch SettingsManager.shared.reopenAction {
+        case .showConsole:
+            showConsole()
+        case .callback:
+            // With no callback to call (e.g. the config failed to load), fall back to the
+            // Console, so there's always a way back in when we're in neither Dock nor menu bar
+            if JSEngine.shared.moduleRoot?.callOnRelaunch() != true {
+                AKWarning("Relaunched, but hs.onRelaunch isn't set, so showing the Console instead")
+                showConsole()
+            }
+        case .doNothing:
+            break
+        }
+        // We've handled it ourselves, so SwiftUI shouldn't reopen a window of its choosing
+        return false
+    }
+
+    private func showConsole() {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        if let url = URL(string: "hammerspoon2://openConsole") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
             if url.isFileURL, url.pathExtension.lowercased() == "spoon2" {

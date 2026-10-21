@@ -83,7 +83,7 @@ class JSEngine {
         SettingsManager.shared.removeAllDelegates()
         memoryPressureCollector = nil
 
-        if let hs = self["hs"] as? JSValue, let moduleRoot = hs.toObjectOf(ModuleRoot.self) as? ModuleRoot {
+        if let moduleRoot {
             moduleRoot.shutdown()
             self["hs"] = nil
         }
@@ -135,6 +135,11 @@ extension JSEngine: JSEngineProtocol {
             AKGarbage("JSEngine subscript set for: \(key)")
             context?.setObject(newValue, forKeyedSubscript: key as (NSCopying & NSObjectProtocol))
         }
+    }
+
+    /// The current context's `hs` object, if there is one
+    var moduleRoot: ModuleRoot? {
+        (self["hs"] as? JSValue)?.toObjectOf(ModuleRoot.self) as? ModuleRoot
     }
 
     @discardableResult func eval(_ script: String) -> Any? {
