@@ -30,6 +30,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ManagerManager.shared.prepareForTermination()
     }
 
+    /// Called when the app is launched again while already running (Finder, Spotlight, `open -a`)
+    /// or its Dock icon is clicked. This is how users get back to the console when we're hidden
+    /// from both the Dock and the menu bar.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        switch SettingsManager.shared.reopenAction {
+        case .showConsole:
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            if let url = URL(string: "hammerspoon2://openConsole") {
+                NSWorkspace.shared.open(url)
+            }
+        case .doNothing:
+            break
+        }
+        // We've handled it ourselves, so SwiftUI shouldn't reopen a window of its choosing
+        return false
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
             if url.isFileURL, url.pathExtension.lowercased() == "spoon2" {
