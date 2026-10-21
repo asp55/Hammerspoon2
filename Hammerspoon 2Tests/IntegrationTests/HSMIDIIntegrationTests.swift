@@ -11,6 +11,13 @@ import Synchronization
 
 // MARK: - Helpers
 
+/// CoreMIDI calls a client's notify block on its own `MIDIClient` queue. A closure written inside
+/// a MainActor-isolated context would inherit that isolation and trap there whenever a setup
+/// notification arrives, so it's built here.
+private nonisolated func makeIgnoringNotifyBlock() -> MIDINotifyBlock {
+    { _ in }
+}
+
 /// A CoreMIDI client created once and deliberately never disposed for the lifetime of this
 /// test process (a plain top-level `let` is lazily initialized exactly once, thread-safely,
 /// on first access — never re-run for the rest of the process).
@@ -32,7 +39,7 @@ import Synchronization
 /// for the rest of the process, so MIDIServer never sees a reason to exit mid-suite.
 private let keepAliveMIDIClient: MIDIClientRef = {
     var client = MIDIClientRef()
-    _ = MIDIClientCreateWithBlock("HSMIDITests Keep-Alive" as CFString, &client) { _ in }
+    _ = MIDIClientCreateWithBlock("HSMIDITests Keep-Alive" as CFString, &client, makeIgnoringNotifyBlock())
     return client
 }()
 
@@ -90,7 +97,7 @@ private final class TestMIDIVirtualSource {
         // few short retries absorb that without masking a real, persistent failure.
         var clientStatus: OSStatus = noErr
         for attempt in 0..<12 {
-            clientStatus = MIDIClientCreateWithBlock(name as CFString, &client) { _ in }
+            clientStatus = MIDIClientCreateWithBlock(name as CFString, &client, makeIgnoringNotifyBlock())
             if clientStatus == noErr { break }
             usleep(useconds_t(30_000 * (attempt + 1)))
         }
@@ -162,7 +169,7 @@ private final class TestMIDIVirtualDestination {
         self.name = name
         _ = keepAliveMIDIClient // see its declaration
 
-        let clientStatus = MIDIClientCreateWithBlock(name as CFString, &client) { _ in }
+        let clientStatus = MIDIClientCreateWithBlock(name as CFString, &client, makeIgnoringNotifyBlock())
         guard clientStatus == noErr else {
             throw NSError(domain: "TestMIDIVirtualDestination", code: 1, userInfo: [NSLocalizedDescriptionKey: "MIDIClientCreateWithBlock failed (\(clientStatus))"])
         }
